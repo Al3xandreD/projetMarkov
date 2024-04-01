@@ -8,4 +8,4 @@ class Country(object):
         self.nb_conf=0  # number of conflicts involved in
 
     def toString(self):
-        return "Name: " + self.name + "\ Current state: " + self.current_state
+        return "Name: " + self.name + "\ Current state: " + str(self.current_state)+"\ Nb of conflicts: "+str(self.nb_conf)+"Transition matrix: "+str(self.A)
