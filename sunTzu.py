@@ -1,6 +1,7 @@
-#import utilsMarkov
+import utilsMarkov
 import pandas as pd
 import sqlite3
+import numpy as np
 from Country import Country
 
 def extract_data(path):
@@ -26,25 +27,34 @@ def data_to_sql(data):
     return cur
 
 
-def create_countries(data, nb_countries):
+def newCreate_contries(data):
     '''
-    Creates the interest countries included in the dataframe
-    :param data: Panda dataframe
-    :param nb_countries: number of interest countries
-    :return: list_country: list of countries
+
+    :param data:
+    :return:
     '''
     list_countries = []
-    total_countriesA=data['side_a'].value_counts()  # side A  in the database
-    total_countriesB=data['side_b'].value_counts()  # side B in the database
+    list_name_countries = []
+    total_countriesA = data['side_a'].value_counts()  # side A  in the database
+    total_countriesB = data['side_b'].value_counts()  # side B in the database
 
-    # counting total number of years in conflicts in both sides
+    for elementA in total_countriesA.index.tolist():
+        country_lstring=elementA.split(",")  # split if contains multiple countries
+        for countryA in country_lstring:
+            if "Government" in countryA.split(" "): # check if government
+                if countryA[0] == " " and countryA[1:] not in list_name_countries: # there is blank space at first and country not in list
+                    list_name_countries.append(countryA[1:])
+                if countryA not in list_name_countries:   # no blank space and country not in list
+                    list_name_countries.append(countryA)
+
     for elementB in total_countriesB.index.tolist():
-        if "Government" in elementB.split(" "): # check if government
-            government_name=elementB.split(" ")[2]    # government name in side B
-            if "Government"+government_name in total_countriesA.index.tolist(): # country already is in the side A
-                total_countriesA['Government of '+government_name]+=1    # incrementing in the side A
-            else: # country not in side A
-                total_countriesA['Government of '+government_name]=1
+        country_lstring=elementB.split(",")  # split if contains multiple countries
+        for countryB in country_lstring:
+            if "Government" in countryB.split(" "): # check if government
+                if countryB[0]==" " and countryB[1:] not in list_name_countries:
+                    list_name_countries.append(countryB[1:])   # incrementing in the side A
+                if countryB not in list_name_countries:
+                    list_name_countries.append(countryB)
 
     # transfer to sql
     conn = sqlite3.connect('database.db')   # opening
@@ -52,15 +62,11 @@ def create_countries(data, nb_countries):
     cur = conn.cursor()  # cursor for requests
 
     # creating countries
-    for i in range(len(total_countriesA.index.tolist())):
-        country=total_countriesA.index.tolist()[i]
+    for country in list_name_countries:
         # fetching current state of intensity
         try:
-            #cur.execute("SELECT type_of_conflict FROM Conflicts WHERE (side_a=='" + country + "' OR side_b=='"+ country+ "') ORDER BY year DESC LIMIT 1")
-
             cur.execute(
-                "SELECT type_of_conflict FROM Conflicts WHERE (side_a='" + country + "' OR side_b LIKE '%" + country + "%') ORDER BY year DESC LIMIT 1")
-
+                "SELECT intensity_level FROM Conflicts WHERE (side_a='" + country + "' OR side_b LIKE '%" + country + "%') ORDER BY year DESC LIMIT 1")
             res1=cur.fetchall()
             list_countries.append(Country(country, res1[0][0]))
         except IndexError as e:
@@ -69,7 +75,7 @@ def create_countries(data, nb_countries):
     # closing database
     conn.close()
 
-    return list_countries#[:nb_countries]
+    return list_countries
 
 def comp_nbConf(country, cur):
     '''
@@ -78,199 +84,229 @@ def comp_nbConf(country, cur):
     :param data: Panda dataframe
     :return:
     '''
-
-    cur.execute("SELECT COUNT(*) AS nombre_total_de_conflits FROM Conflicts WHERE side_a = '"+country.name+"' OR side_b = '"+country.name+"';")
+    #print(country.name)
+    cur.execute("SELECT COUNT(DISTINCT conflict_id) AS nombre_total_de_conflits FROM Conflicts WHERE side_a = '"+country.name+"' OR side_b LIKE '%" + country.name + "%';")
     country.nb_conf=cur.fetchall()[0][0]
 
-def comp_p00(country, cur):
+def comp_nbTransition(country, cur):
     '''
-    Computes the probability to pass from  intensity level 0 to 0
+
     :param country:
-    :param data:
+    :param cur:
     :return:
     '''
 
-    cur.execute(
-        "SELECT COUNT(*) AS nombre_de_conflits FROM (SELECT c1.conflict_id FROM Conflicts c1 INNER JOIN Conflicts c2 ON c1.conflict_id = c2.conflict_id WHERE (c1.side_a = '" + country.name + "' AND c2.side_a = '" + country.name + "') AND c1.intensity_level = 0 AND c2.intensity_level = 0 AND c2.year < c1.year) AS subquery;")
+    cur.execute("SELECT COUNT(*) AS nombre_total_de_conflits FROM Conflicts WHERE side_a = '" + country.name + "' OR side_b LIKE '%" + country.name + "%';")
+    country.nb_transition = cur.fetchall()[0][0]
 
-    if country.nb_conf==0:
-        p00=0
-    else:
-        p00=cur.fetchall()[0][0]/country.nb_conf
-    #print(p00)
-    return p00
 
-def comp_p01(country, cur):
+def newCompProb_ab(country, cur, a, b):
     '''
-    Computes the probability to pass from  intensity level 0 to 1
+
     :param country:
-    :param data:
+    :param cur:
+    :param a: starting state
+    :param b: end state
     :return:
     '''
 
-    cur.execute("SELECT COUNT(*) AS nombre_de_conflits FROM (SELECT c1.conflict_id FROM Conflicts c1 INNER JOIN Conflicts c2 ON c1.conflict_id = c2.conflict_id WHERE (c1.side_a = '"+country.name+"' AND c2.side_a = '"+country.name+"') AND c1.intensity_level = 1 AND c2.intensity_level = 0 AND c2.year < c1.year) AS subquery;")
+    count=0
 
-    if country.nb_conf==0:
-        p01=0
+    cur.execute("SELECT DISTINCT conflict_id FROM Conflicts WHERE side_a = '" + country.name+ "'")
+    list_cId=cur.fetchall()
+
+    for i in range(len(list_cId)): # for all conflicts where the country is involved
+        cur.execute("SELECT * FROM CONFLICTS WHERE conflict_id = '"+str(list_cId[i][0])+"'") # toute les lignes du conflit
+        list_lineC=cur.fetchall()
+
+        for j in range(len(list_lineC)-1):
+            if list_lineC[j][11]==a and list_lineC[j+1][11]==b: # test to see intensity level state between two years of conflict
+                count+=1
+
+    if country.nb_transition==0:
+        return 0
     else:
-        p01= cur.fetchall()[0][0] / country.nb_conf
-    #print(p01)
-    return p01
+        return count/country.nb_transition
 
-def comp_p02(country, cur):
+def newCompA(country, cur):
     '''
-    Computes the probability to pass from  intensity level 0 to
+    Computes A using the number of transitions
     :param country:
-    :param data:
+    :param cur:
     :return:
     '''
 
-    cur.execute(
-        "SELECT COUNT(*) AS nombre_de_conflits FROM (SELECT c1.conflict_id FROM Conflicts c1 INNER JOIN Conflicts c2 ON c1.conflict_id = c2.conflict_id WHERE (c1.side_a = '" + country.name + "' AND c2.side_a = '" + country.name + "') AND c1.intensity_level = 2 AND c2.intensity_level = 0 AND c2.year < c1.year) AS subquery;")
+    country.A[0][0] = newCompProb_ab(country, cur, 0,0)
+    country.A[0][1] = newCompProb_ab(country, cur, 0,1)
+    country.A[0][2] = newCompProb_ab(country, cur, 0,2)
+    country.A[1][0] = newCompProb_ab(country, cur, 1,0)
+    country.A[1][1] = newCompProb_ab(country, cur, 1,1)
+    country.A[1][2] = newCompProb_ab(country, cur, 1,2)
+    country.A[2][0] = newCompProb_ab(country, cur, 2,0)
+    country.A[2][1] = newCompProb_ab(country, cur, 2,1)
+    country.A[2][2] = newCompProb_ab(country, cur, 2,2)
 
-    if country.nb_conf==0:
-        p02=0
-    else:
-        p02= cur.fetchall()[0][0] / country.nb_conf
-    return p02
-
-def comp_p11(country, cur):
+def compAaugmentation(country, cur):
     '''
-    Computes the probability to pass from  intensity level 1 to 1
+    Computes A using the number of transitions and forcing stochastic on p10 and p20
     :param country:
-    :param data:
+    :param cur:
     :return:
     '''
 
-    cur.execute(
-        "SELECT COUNT(*) AS nombre_de_conflits FROM (SELECT c1.conflict_id FROM Conflicts c1 INNER JOIN Conflicts c2 ON c1.conflict_id = c2.conflict_id WHERE (c1.side_a = '" + country.name + "' AND c2.side_a = '" + country.name + "') AND c1.intensity_level = 1 AND c2.intensity_level = 1 AND c2.year < c1.year) AS subquery;")
-    if country.nb_conf==0:
-        p11=0
-    else:
-        p11= cur.fetchall()[0][0]/country.nb_conf
-    return p11
+    country.A[1][1] = newCompProb_ab(country, cur, 1, 1)
+    country.A[1][2] = newCompProb_ab(country, cur, 1, 2)
+    country.A[1][0] = 1 - country.A[1][1] - country.A[1][2]
 
-def comp_p12(country, cur):
+    country.A[2][1] = newCompProb_ab(country, cur, 2, 1)
+    country.A[2][2] = newCompProb_ab(country, cur, 2, 2)
+    country.A[2][0] = 1 - country.A[2][1] - country.A[2][2]
+
+    country.A[0][1] = country.A[1][1] + country.A[1][2]  # using the number of conflicts starting to intensity level 1
+    country.A[0][2] = country.A[2][1] + country.A[2][2]  # using the number of conflicts starting to intensity level 2
+    country.A[0][0] = 1 - country.A[0][1] - country.A[0][2]
+
+    # country.A[0][1] = newCompProb_ab(country,cur,0,1)
+    # country.A[0][2] = newCompProb_ab(country, cur, 0, 2)
+    # country.A[0][0] = 1-country.A[0][1]-country.A[0][2]
+
+def testStochastique(country):
     '''
-    Computes the probability to pass from  intensity level 1 to 2
-    :param country:
-    :param data:
+    
+    :param country: 
+    :param cur: 
+    :return: 
+    '''
+    if np.array_equal(np.sum(country.A, axis=1),np.array([1,1,1])):
+        print(country.name, "True")
+
+def compB():
+    '''
+    Computes the observation matrix
     :return:
     '''
 
-    cur.execute(
-        "SELECT COUNT(*) AS nombre_de_conflits FROM (SELECT c1.conflict_id FROM Conflicts c1 INNER JOIN Conflicts c2 ON c1.conflict_id = c2.conflict_id WHERE (c1.side_a = '" + country.name + "' AND c2.side_a = '" + country.name + "') AND c1.intensity_level = 2 AND c2.intensity_level = 1 AND c2.year < c1.year) AS subquery;")
-    if country.nb_conf==0:
-        p12=0
-    else:
-        p12= cur.fetchall()[0][0]/country.nb_conf
-    return p12
+    B=np.array([[0.9, 0.07, 0.03],
+                [0.05, 0.9, 0.05],
+                [0.03, 0.07, 0.9]])
 
-def comp_p10(country, cur):
+    return B
+
+def createSequenceDP(states):
     '''
-    Computes the probability to pass from  intensity level 1 to 0
-    :param country:
-    :param data:
+    Creates all sequences possible between the states
+    :param states:
+    :return:
+    '''
+    # states=[0, 1, 2]
+    l_seq=[]  # list of sequence
+
+    for state1 in states:
+        for state2 in states:
+            for state3 in states:
+                for state4 in states:
+                    for state5 in states:
+                        X=[state1, state2, state3, state4, state5]
+                        l_seq.append(X)
+
+    return l_seq
+
+def compProbSequence(sequence, observation, A, B, pi):
+    '''
+    Computes the probabilty for a given sequence to happen
+    :param sequence:
+    :return:
+    '''
+    # sequence=[0,1,2,2,0]
+
+    prob=pi[sequence[0]]*B[sequence[0]][observation[0]] *A[sequence[0]][sequence[1]]*B[sequence[1]][observation[1]] *A[sequence[1]][sequence[2]]*B[sequence[2]][observation[2]] *A[sequence[2]][sequence[3]]*B[sequence[3]][observation[3]] *A[sequence[3]][sequence[4]]*B[sequence[4]][observation[4]]
+    return prob
+
+def solDP(l_seq, observation, A, B, pi):
+    '''
+    Computes the best sequence of states according to Dynamic Programming solution
+    :param l_seq:
     :return:
     '''
 
-    cur.execute(
-        "SELECT COUNT(*) AS nombre_de_conflits FROM (SELECT c1.conflict_id FROM Conflicts c1 INNER JOIN Conflicts c2 ON c1.conflict_id = c2.conflict_id WHERE (c1.side_a = '" + country.name + "' AND c2.side_a = '" + country.name + "') AND c1.intensity_level = 0 AND c2.intensity_level = 1 AND c2.year < c1.year) AS subquery;")
-    if country.nb_conf==0:
-        p10=0
-    else:
-        p10= cur.fetchall()[0][0]/country.nb_conf
-    return p10
+    l_prob=[]
 
-def comp_p22(country, cur):
+    for seq in l_seq:
+        prob = compProbSequence(seq,observation, A, B, pi)
+        l_prob.append(prob)
+
+    prob_max=max(l_prob)
+    index=l_prob.index(prob_max)
+
+    return l_seq[index], l_prob, prob_max
+
+def dispResDP(l_seq, l_prob):
     '''
-    Computes the probability to pass from  intensity level 2 to 2
-    :param country:
-    :param data:
+    Displays the probabilty of realisation for each sequence
+    :param l_seq:
+    :param l_prob:
     :return:
     '''
 
-    cur.execute(
-        "SELECT COUNT(*) AS nombre_de_conflits FROM (SELECT c1.conflict_id FROM Conflicts c1 INNER JOIN Conflicts c2 ON c1.conflict_id = c2.conflict_id WHERE (c1.side_a = '" + country.name + "' AND c2.side_a = '" + country.name + "') AND c1.intensity_level = 2 AND c2.intensity_level = 2 AND c2.year < c1.year) AS subquery;")
-
-    if country.nb_conf==0:
-        p22=0
-    else:
-        p22= cur.fetchall()[0][0]/country.nb_conf
-    return p22
-
-def comp_p21(country, cur):
-    '''
-    Computes the probability to pass from  intensity level 2 to 1
-    :param country:
-    :param data:
-    :return:
-    '''
-
-    cur.execute(
-        "SELECT COUNT(*) AS nombre_de_conflits FROM (SELECT c1.conflict_id FROM Conflicts c1 INNER JOIN Conflicts c2 ON c1.conflict_id = c2.conflict_id WHERE (c1.side_a = '" + country.name + "' AND c2.side_a = '" + country.name + "') AND c1.intensity_level = 1 AND c2.intensity_level = 2 AND c2.year < c1.year) AS subquery;")
-
-    if country.nb_conf==0:
-        p21=0
-    else:
-        p21=cur.fetchall()[0][0]/country.nb_conf
-    return p21
-
-def comp_p20(country, cur):
-    '''
-    Computes the probability to pass from  intensity level 2 to0
-    :param country:
-    :param data:
-    :return:
-    '''
-
-    cur.execute(
-        "SELECT COUNT(*) AS nombre_de_conflits FROM (SELECT c1.conflict_id FROM Conflicts c1 INNER JOIN Conflicts c2 ON c1.conflict_id = c2.conflict_id WHERE (c1.side_a = '" + country.name + "' AND c2.side_a = '" + country.name + "') AND c1.intensity_level = 0 AND c2.intensity_level = 2 AND c2.year < c1.year) AS subquery;")
-    if country.nb_conf==0:
-        p20=0
-    else:
-        p20= cur.fetchall()[0][0]/country.nb_conf
-    return p20
-
-def compA(country, cur):
-    '''
-    Computes the transition matrix for a given country
-    :param country: country at stake
-    :param cur: sqlite cursor
-    :return:
-    '''
-
-    country.A[0][0]=comp_p00(country, cur)
-    country.A[0][1]=comp_p01(country, cur)
-    country.A[0][2]=comp_p02(country, cur)
-    country.A[1][0]=comp_p10(country, cur)
-    country.A[1][1]=comp_p11(country, cur)
-    country.A[1][2]=comp_p12(country, cur)
-    country.A[2][0]=comp_p20(country, cur)
-    country.A[2][1]=comp_p21(country, cur)
-    country.A[2][2]=comp_p22(country, cur)
-
+    print("Sequence", "                  ", "Probabilité")
+    for k in range(len(l_seq)):
+        print(l_seq[k], "                   ",l_prob[k])
 
 
 if __name__ == "__main__":
 
-    # TODO: Regler problème de redondance dans le calcul des probabilités
-
-    # TODO: simuler l'effet de voisinage par observation dynamique
-    # TODO: ajouter les autres variables d'observation et matrice d'observation
-
-    # TODO: simulation du HMM
-    # TODO: sequence d'observation, solution DP, HMM
+    # TODO HMM
     # TODO: baum welsh retrouver le modèle
 
-    excel_path="UcdpPrioConflict_v23_1.xlsx"
-    data=extract_data(excel_path)
-    #print(data)
-    list_countries=create_countries(data,3) # creating countries
-    cur=data_to_sql(data)   # sqlite cursor
+    excel_path = "UcdpPrioConflict_v23_1.xlsx"
+    data = extract_data(excel_path)
+    list_countries = newCreate_contries(data)
+    cur = data_to_sql(data)  # sqlite cursor
 
-    # computing total number of conflicts for every country
+
+    Augmentation=True
+
+    transition=True # on calcul les proba en se basant sur le nombre de transition
+
     for country in list_countries:
-        comp_nbConf(country, cur)   # computing total number of conflicts for every country
-        compA(country, cur) # computing transition matrix
-        print(country.toString())
+        if Augmentation and transition:
+            print('#######################')
+            comp_nbTransition(country, cur)
+            compAaugmentation(country, cur)
+            testStochastique(country)
+            print(country.toString())
+            print('#######################')
+
+        if Augmentation and not transition:
+            comp_nbConf(country, cur)
+            compAaugmentation(country, cur)
+            testStochastique(country)
+            print(country.toString())
+
+        if not Augmentation:
+            comp_nbConf(country, cur)
+            newCompA(country,cur)
+            print(country.toString())
+
+    my_country=list_countries[0]
+    # verification de la propriété d'ergodicité
+    pi_n=utilsMarkov.isErgodique(my_country.A, 0.1)
+    print("Valeur final du vecteur transition", pi_n)
+
+    # simulation du HMM
+    starting_state=0
+    l_states=utilsMarkov.newSimulation(my_country.A,starting_state,5)
+    print("Sequence d'etat après simulation", l_states)
+
+    # estimation d'une sequence d'états à partir d'observation
+    Y=[0,1,2,2,0]   # sequence d'observation des etats de la région
+    pi_0=np.array([0.7,0.2,0.1])  # distribution initiale
+
+    # solution DP
+    l_seq=createSequenceDP([0, 1, 2])
+    X_best, l_prob, prob_max=solDP(l_seq,Y, my_country.A,compB(), pi_0)
+    print("La sequence la plus semblable au sens de la programmation dynamique est: ", X_best, " avec une probabilité de réalisation de: ",prob_max )
+    #print("Solution par forward algorithm", utilsMarkov.forwardAlgorithm(Y, my_country.A,compB(),pi_0))
+    dispResDP(l_seq,l_prob)
+
+    # solution HMM
