@@ -10,31 +10,25 @@ def isErgodique(A, thr):
     '''
 
     # check if ergodique
-    n=1000000 # nombre d'itérations
-    ergo = True
+    n=10000000 # nombre d'itérations
 
     pi1=np.random.random((1,3)) # vecteur aléatoire
     pi2=np.random.random((1,3))
 
-    for k in range(n):
-        pi1=pi1@A
-        pi2=pi2@A
+    pi1=pi1@np.linalg.matrix_power(A,n)
+    pi2=pi2@np.linalg.matrix_power(A,n)
 
-    print(pi1,pi2)
-    #
-    # for value in np.abs(pi1-pi2):
-    #     if value[0] > thr:
-    #         ergo=False
+    print("Vecteur aléatoire n°1 après"+str(n)+"itérations", pi1)
+    print("Vecteur aléatoire n°2 après" + str(n) + "itérations", pi2)
 
-    if ergo:
-        eigenvalues,eigenvectors = np.linalg.eig(A)
-        index=0 # index of searched eigenvector
-        for k in range(len(eigenvalues)):
-            if eigenvalues[k]==1:
-                index=k
-        print(eigenvectors[:,index])
 
-        return eigenvectors[:,index]
+    eigenvalues,eigenvectors = np.linalg.eig(A)
+    index=0 # index of searched eigenvector
+    for k in range(len(eigenvalues)):
+        if eigenvalues[k]==1:
+            index=k
+
+    return eigenvectors[:,index]
 
 def simulation(A,N,i_Xn):
     '''
@@ -121,7 +115,7 @@ def forwardAlgorithm(Y, A, B, v_pi):
     :return:
     '''
     N=A.shape[0]
-    T=Y.shape[0]
+    T=len(Y)
     tab_alpha=np.zeros((N,T))
     # initialisation
     for i in range(N):
@@ -133,7 +127,7 @@ def forwardAlgorithm(Y, A, B, v_pi):
 
     pylbd=np.sum(tab_alpha[:,-1])
 
-    return pylbd
+    return pylbd, tab_alpha
 
 def backwardAlgorithm(Y, A, B):
     '''
@@ -144,7 +138,7 @@ def backwardAlgorithm(Y, A, B):
     :return:
     '''
     N=A.shape[0]
-    T=Y.shape[0]
+    T=len(Y)
     tab_beta=np.zeros((N,T))
 
     # initialisation
@@ -155,7 +149,60 @@ def backwardAlgorithm(Y, A, B):
             tab_beta[i][t]=np.sum(A[i,:]*B[:,Y[t+1]]*tab_beta[:,t+1])
     pylbd=np.sum(tab_beta[:,0])
 
-    return pylbd
+    return pylbd, tab_beta
+
+def baum_welch(Y, N, M, max_iter=100, tol=1e-6):
+    '''
+
+    :param Y:
+    :param N: number of states
+    :param M: number of observations types
+    :param max_iter:
+    :param tol:
+    :return:
+    '''
+    T = len(Y)
+
+    A = np.random.rand(N, N)
+    A /= np.sum(A, axis=1, keepdims=True)
+    B = np.random.rand(N, M)
+    B /= np.sum(B, axis=1, keepdims=True)
+    pi = np.random.rand(N)
+    pi /= np.sum(pi)
+
+    for iter in range(max_iter):
+        # Etape d'espérance
+        pylbd_f, alpha = forwardAlgorithm(Y, A, B, pi)
+        pylbd_b, beta = backwardAlgorithm(Y, A, B)
+        gamma = alpha * beta / pylbd_f
+
+        xi = np.zeros((N, N, T - 1))
+        for t in range(T - 1):
+            for i in range(N):
+                for j in range(N):
+                    xi[i, j, t] = alpha[i, t] * A[i, j] * B[j, Y[t + 1]] * beta[j, t + 1] / pylbd_f
+
+        # Etape de maximisation
+        new_pi = gamma[:, 0]
+        new_A = np.sum(xi, axis=2) / np.sum(gamma[:, :-1], axis=1, keepdims=True)
+
+        new_B = np.zeros((N, M))
+        for k in range(M):
+            mask = (Y == k)
+            new_B[:, k] = np.sum(gamma[:, mask], axis=1) / np.sum(gamma, axis=1)
+
+        diff_A = np.linalg.norm(new_A - A)
+        diff_B = np.linalg.norm(new_B - B)
+        diff_pi = np.linalg.norm(new_pi - pi)
+
+        if diff_A < tol and diff_B < tol and diff_pi < tol:
+            break
+
+        A = new_A
+        B = new_B
+        pi = new_pi
+
+    return A, B, pi
 
 # def viterbiAlgorithm(Y, A, B, v_pi):
 #     '''

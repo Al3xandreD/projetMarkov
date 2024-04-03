@@ -2,6 +2,7 @@ import utilsMarkov
 import pandas as pd
 import sqlite3
 import numpy as np
+import matplotlib.pyplot as plt
 from Country import Country
 
 def extract_data(path):
@@ -27,7 +28,7 @@ def data_to_sql(data):
     return cur
 
 
-def newCreate_contries(data):
+def create_contries(data):
     '''
 
     :param data:
@@ -180,6 +181,40 @@ def testStochastique(country):
     if np.array_equal(np.sum(country.A, axis=1),np.array([1,1,1])):
         print(country.name, "True")
 
+def compPrportion(A,size_sim):
+    '''
+    Computes the proportion of each states after a simulation
+    :param A:
+    :param size_sim:
+    :return:
+    '''
+    simulation=utilsMarkov.newSimulation(A, 0, size_sim)
+    prop0, prop1, prop2=0, 0, 0
+    l_prop0, l_prop1, l_prop2=[], [], []
+    for k in range(len(simulation)):
+        l_prop0.append(prop0)
+        l_prop1.append(prop1)
+        l_prop2.append(prop2)
+        if simulation[k]==0:
+            prop0+=1/len(simulation)
+        if simulation[k]==1:
+            prop1+=1/len(simulation)
+        if simulation[k]==2:
+            prop2+=1/len(simulation)
+
+    #prop0, prop1, prop2=prop0/len(simulation), prop1/len(simulation), prop2/len(simulation)
+
+    plt.figure()
+    liste_x=np.arange(0,len(simulation), 1)
+    plt.plot(liste_x, l_prop0, label='etat 0')
+    plt.plot(liste_x, l_prop1, label='etat 1')
+    plt.plot(liste_x, l_prop2, label='etat 2')
+    plt.legend()
+    plt.show()
+
+    print("Les proportions pour les états 0, 1 et 2 sont: ", prop0, prop1, prop2)
+
+
 def compB():
     '''
     Computes the observation matrix
@@ -252,6 +287,37 @@ def dispResDP(l_seq, l_prob):
     for k in range(len(l_seq)):
         print(l_seq[k], "                   ",l_prob[k])
 
+def solHMM(observation, A, B, pi):
+    '''
+
+    :param observation:
+    :param A:
+    :param B:
+    :param pi:
+    :return:
+    '''
+    l_states=[]
+
+    N = A.shape[0]
+    T = len(Y)
+
+    pforward,alpha=utilsMarkov.forwardAlgorithm(observation,A,B,pi)
+    pbackward, beta=utilsMarkov.backwardAlgorithm(observation,A,B)
+    probYlbd=np.sum(alpha[:,-1],axis=0)
+    print(probYlbd)
+
+    gamma=np.zeros(alpha.shape)
+
+    for t in range(1,T):
+        for i in range(N):
+            gamma[i][t]=alpha[i][t]*beta[i][t]*(1/probYlbd)
+
+    for t in range(0,T):
+        state=np.argmax(gamma[:,t], axis=0)
+        l_states.append(state)
+
+    return l_states
+
 
 if __name__ == "__main__":
 
@@ -260,7 +326,7 @@ if __name__ == "__main__":
 
     excel_path = "UcdpPrioConflict_v23_1.xlsx"
     data = extract_data(excel_path)
-    list_countries = newCreate_contries(data)
+    list_countries = create_contries(data)
     cur = data_to_sql(data)  # sqlite cursor
 
 
@@ -273,7 +339,7 @@ if __name__ == "__main__":
             print('#######################')
             comp_nbTransition(country, cur)
             compAaugmentation(country, cur)
-            testStochastique(country)
+            #testStochastique(country)
             print(country.toString())
             print('#######################')
 
@@ -288,25 +354,37 @@ if __name__ == "__main__":
             newCompA(country,cur)
             print(country.toString())
 
-    my_country=list_countries[0]
+    my_country=list_countries[0]    # pays à utiliser
+
     # verification de la propriété d'ergodicité
     pi_n=utilsMarkov.isErgodique(my_country.A, 0.1)
     print("Valeur final du vecteur transition", pi_n)
 
-    # simulation du HMM
+    # simulation du MMC
     starting_state=0
     l_states=utilsMarkov.newSimulation(my_country.A,starting_state,5)
     print("Sequence d'etat après simulation", l_states)
 
+    # visualisation des proportion
+    compPrportion(my_country.A,10)
+
     # estimation d'une sequence d'états à partir d'observation
-    Y=[0,1,2,2,0]   # sequence d'observation des etats de la région
+    Y=[0,1,1,2,1]   # sequence d'observation des etats de la région
     pi_0=np.array([0.7,0.2,0.1])  # distribution initiale
 
     # solution DP
     l_seq=createSequenceDP([0, 1, 2])
     X_best, l_prob, prob_max=solDP(l_seq,Y, my_country.A,compB(), pi_0)
-    print("La sequence la plus semblable au sens de la programmation dynamique est: ", X_best, " avec une probabilité de réalisation de: ",prob_max )
-    #print("Solution par forward algorithm", utilsMarkov.forwardAlgorithm(Y, my_country.A,compB(),pi_0))
+    print("Sequence d'observation", Y)
+    print("La sequence la plus semblable au sens de la programmation dynamique est: ", X_best, " \navec une probabilité de réalisation de: ",prob_max )
     dispResDP(l_seq,l_prob)
 
     # solution HMM
+    seqHMM=solHMM(Y, my_country.A,compB(), pi_0)
+    print("La sequence la plus semblable au sens HMM est:", seqHMM)
+
+    # Analyse critique par Baum Welsh
+    # A_welsh, B_welsh, pi_welsh=utilsMarkov.baum_welch(Y,my_country.A.shape[0], compB().shape[1],10)
+    # print("Matrice de transition selon Baum-Welsh", A_welsh)
+    # print("Matrice d'observation selon Baum-Welsh", B_welsh)
+    # print("Vecteur transition selon Baum-Welsh", pi_welsh)
