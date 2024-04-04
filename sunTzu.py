@@ -354,19 +354,22 @@ if __name__ == "__main__":
             newCompA(country,cur)
             print(country.toString())
 
-    my_country=list_countries[0]    # pays à utiliser
-
+    # for country in list_countries:    # France
+    #     if country.name=="Government of France":
+    #         my_country=country # pays à utiliser
+    #         break
+    my_country=list_countries[0]    # Myanmar
     # verification de la propriété d'ergodicité
-    pi_n=utilsMarkov.isErgodique(my_country.A, 0.1)
+    pi_n=utilsMarkov.isErgodique(my_country.A)
     print("Valeur final du vecteur transition", pi_n)
 
     # simulation du MMC
     starting_state=0
-    l_states=utilsMarkov.newSimulation(my_country.A,starting_state,5)
+    l_states=utilsMarkov.newSimulation(my_country.A,starting_state,10)
     print("Sequence d'etat après simulation", l_states)
 
     # visualisation des proportion
-    compPrportion(my_country.A,10)
+    compPrportion(my_country.A,50)
 
     # estimation d'une sequence d'états à partir d'observation
     Y=[0,1,1,2,1]   # sequence d'observation des etats de la région
@@ -384,7 +387,7 @@ if __name__ == "__main__":
     print("La sequence la plus semblable au sens HMM est:", seqHMM)
 
     # Analyse critique par Baum Welsh
-    # A_welsh, B_welsh, pi_welsh=utilsMarkov.baum_welch(Y,my_country.A.shape[0], compB().shape[1],10)
-    # print("Matrice de transition selon Baum-Welsh", A_welsh)
-    # print("Matrice d'observation selon Baum-Welsh", B_welsh)
-    # print("Vecteur transition selon Baum-Welsh", pi_welsh)
+    A_welsh, B_welsh, pi_welsh=utilsMarkov.baum_welch(Y,my_country.A.shape[0], compB().shape[1],10)
+    print("Matrice de transition selon Baum-Welsh", A_welsh)
+    print("Matrice d'observation selon Baum-Welsh", B_welsh)
+    print("Vecteur transition selon Baum-Welsh", pi_welsh)

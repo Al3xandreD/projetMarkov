@@ -1,11 +1,10 @@
 import numpy as np
 
-def isErgodique(A, thr):
+def isErgodique(A):
     '''
     Checks if the Markov chain is ergodique, if so return pi_etoile,
     the limit to infinity of the transition vector
     :param A:
-    :param thr: threshold upon which we consider the two transition vectors being close
     :return:
     '''
 
@@ -23,11 +22,17 @@ def isErgodique(A, thr):
 
 
     eigenvalues,eigenvectors = np.linalg.eig(A)
-    index=0 # index of searched eigenvector
-    for k in range(len(eigenvalues)):
-        if eigenvalues[k]==1:
-            index=k
+    index = None  # Index of the searched eigenvector
+    tol = 1e-10  # Tolerance for considering a value close to 1
 
+    for k in range(len(eigenvalues)):
+        if np.isclose(eigenvalues[k], 1.0, atol=tol):
+            index = k
+            break
+
+    if index is None:
+        print("No eigenvalue close to 1 found.")
+        return None
     return eigenvectors[:,index]
 
 def simulation(A,N,i_Xn):
