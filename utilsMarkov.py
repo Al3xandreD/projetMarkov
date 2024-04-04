@@ -97,7 +97,7 @@ def newSimulation(A, etat_initial, n):
     :param n: nombre d'iteration
     :return:
     '''
-    l_states=[etat_initial] # list of all states
+    l_states=[etat_initial] # list of all state
     etat_actuel=etat_initial
 
     for k in range(n-1):

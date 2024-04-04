@@ -363,7 +363,7 @@ if __name__ == "__main__":
     pi_n=utilsMarkov.isErgodique(my_country.A)
     print("Valeur final du vecteur transition", pi_n)
 
-    # simulation du MMC
+    # simulation
     starting_state=0
     l_states=utilsMarkov.newSimulation(my_country.A,starting_state,10)
     print("Sequence d'etat après simulation", l_states)
